@@ -1,0 +1,21 @@
+name: Sync upstream
+
+on:
+  workflow_dispatch:
+  schedule: 
+  - cron: "0 13 * * *"
+
+jobs:
+  build:
+    steps:
+      - name: Sync and merge upstream repository with your current repository
+        uses: n8n-io/n8n
+        with:
+          # URL of gitHub public upstream repo
+          upstream_repo: "https://github.com/n8n-io/n8n.git"
+          # Branch to merge from upstream (defaults to downstream branch)
+          upstream_branch: master
+          # Branch to merge into downstream
+          downstream_branch: master
+
+
