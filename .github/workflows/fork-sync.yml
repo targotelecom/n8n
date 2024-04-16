@@ -15,7 +15,7 @@ jobs:
         token: ${{ github.token }}
     - name: "Update: master"
       id: sync-master
-      uses: mathieucarbou/Fork-Sync-With-Upstream-action@fork-sync
+      uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
       with:
         domain: 'github.com'
         upstream_repository: n8n-io/n8n
