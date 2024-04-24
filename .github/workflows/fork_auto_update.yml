@@ -9,7 +9,7 @@ jobs:
   build:
     steps:
       - name: Sync and merge upstream repository with your current repository
-        uses: n8n-io/n8n
+        uses: actions/checkout@v1
         with:
           # URL of gitHub public upstream repo
           upstream_repo: "https://github.com/n8n-io/n8n.git"
