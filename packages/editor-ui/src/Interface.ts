@@ -6,49 +6,48 @@ import type {
 	TRIGGER_NODE_CREATOR_VIEW,
 	REGULAR_NODE_CREATOR_VIEW,
 	AI_OTHERS_NODE_CREATOR_VIEW,
-	VIEWS,
 	ROLE,
 } from '@/constants';
 import type { IMenuItem, NodeCreatorTag } from 'n8n-design-system';
-import {
-	type GenericValue,
-	type IConnections,
-	type ICredentialsDecrypted,
-	type ICredentialsEncrypted,
-	type ICredentialType,
-	type IDataObject,
-	type INode,
-	type INodeIssues,
-	type INodeParameters,
-	type INodeTypeDescription,
-	type IPinData,
-	type IRunExecutionData,
-	type IRun,
-	type IRunData,
-	type ITaskData,
-	type IWorkflowSettings as IWorkflowSettingsWorkflow,
-	type WorkflowExecuteMode,
-	type PublicInstalledPackage,
-	type INodeTypeNameVersion,
-	type ILoadOptions,
-	type INodeCredentials,
-	type INodeListSearchItems,
-	type NodeParameterValueType,
-	type IDisplayOptions,
-	type ExecutionSummary,
-	type FeatureFlags,
-	type ExecutionStatus,
-	type ITelemetryTrackProperties,
-	type IUserManagementSettings,
-	type WorkflowSettings,
-	type IUserSettings,
-	type IN8nUISettings,
-	type BannerName,
-	type INodeExecutionData,
-	type INodeProperties,
-	type NodeConnectionType,
-	type INodeCredentialsDetails,
-	type StartNodeData,
+import type {
+	GenericValue,
+	IConnections,
+	ICredentialsDecrypted,
+	ICredentialsEncrypted,
+	ICredentialType,
+	IDataObject,
+	INode,
+	INodeIssues,
+	INodeParameters,
+	INodeTypeDescription,
+	IPinData,
+	IRunExecutionData,
+	IRun,
+	IRunData,
+	ITaskData,
+	IWorkflowSettings as IWorkflowSettingsWorkflow,
+	WorkflowExecuteMode,
+	PublicInstalledPackage,
+	INodeTypeNameVersion,
+	ILoadOptions,
+	INodeCredentials,
+	INodeListSearchItems,
+	NodeParameterValueType,
+	IDisplayOptions,
+	ExecutionSummary,
+	FeatureFlags,
+	ExecutionStatus,
+	ITelemetryTrackProperties,
+	IUserManagementSettings,
+	WorkflowSettings,
+	IUserSettings,
+	IN8nUISettings,
+	BannerName,
+	INodeExecutionData,
+	INodeProperties,
+	NodeConnectionType,
+	INodeCredentialsDetails,
+	StartNodeData,
 } from 'n8n-workflow';
 import type { BulkCommand, Undoable } from '@/models/history';
 import type { PartialBy, TupleToUnion } from '@/utils/typeHelpers';
@@ -432,16 +431,6 @@ export interface IExecutionDeleteFilter {
 	ids?: string[];
 }
 
-export type PushDataUsersForWorkflow = {
-	workflowId: string;
-	activeUsers: Array<{ user: IUser; lastSeen: string }>;
-};
-
-type PushDataWorkflowUsersChanged = {
-	data: PushDataUsersForWorkflow;
-	type: 'activeWorkflowUsersChanged';
-};
-
 export type IPushData =
 	| PushDataExecutionFinished
 	| PushDataExecutionStarted
@@ -456,8 +445,7 @@ export type IPushData =
 	| PushDataWorkerStatusMessage
 	| PushDataActiveWorkflowAdded
 	| PushDataActiveWorkflowRemoved
-	| PushDataWorkflowFailedToActivate
-	| PushDataWorkflowUsersChanged;
+	| PushDataWorkflowFailedToActivate;
 
 export type PushDataActiveWorkflowAdded = {
 	data: IActiveWorkflowAdded;
@@ -1123,7 +1111,7 @@ export interface RootState {
 	urlBaseEditor: string;
 	instanceId: string;
 	isNpmAvailable: boolean;
-	binaryDataMode: string;
+	binaryDataMode: 'default' | 'filesystem' | 's3';
 }
 
 export interface NodeMetadataMap {
@@ -1275,41 +1263,6 @@ export interface NotificationOptions extends Partial<ElementNotificationOptions>
 	message: string | ElementNotificationOptions['message'];
 }
 
-export interface UIState {
-	activeActions: string[];
-	activeCredentialType: string | null;
-	sidebarMenuCollapsed: boolean;
-	modalStack: string[];
-	modals: Modals;
-	isPageLoading: boolean;
-	currentView: string;
-	mainPanelPosition: number;
-	fakeDoorFeatures: IFakeDoor[];
-	draggable: {
-		isDragging: boolean;
-		type: string;
-		data: string;
-		canDrop: boolean;
-		stickyPosition: null | XYPosition;
-	};
-	stateIsDirty: boolean;
-	lastSelectedNode: string | null;
-	lastSelectedNodeOutputIndex: number | null;
-	lastSelectedNodeEndpointUuid: string | null;
-	nodeViewOffsetPosition: XYPosition;
-	nodeViewMoveInProgress: boolean;
-	selectedNodes: INodeUi[];
-	nodeViewInitialized: boolean;
-	addFirstStepOnLoad: boolean;
-	bannersHeight: number;
-	bannerStack: BannerName[];
-	theme: ThemeOption;
-	pendingNotificationsForViews: {
-		[key in VIEWS]?: NotificationOptions[];
-	};
-	isCreateNodeActive: boolean;
-}
-
 export type IFakeDoor = {
 	id: FAKE_DOOR_FEATURES;
 	featureName: BaseTextKey;
@@ -1379,10 +1332,10 @@ export interface ISettingsState {
 	mfa: {
 		enabled: boolean;
 	};
-	onboardingCallPromptEnabled: boolean;
-	saveDataErrorExecution: string;
-	saveDataSuccessExecution: string;
+	saveDataErrorExecution: WorkflowSettings.SaveDataExecution;
+	saveDataSuccessExecution: WorkflowSettings.SaveDataExecution;
 	saveManualExecutions: boolean;
+	saveDataProgressExecution: boolean;
 }
 
 export type NodeTypesByTypeNameAndVersion = {
@@ -1421,13 +1374,6 @@ export interface IVersionsState {
 	versionNotificationSettings: IVersionNotificationSettings;
 	nextVersions: IVersion[];
 	currentVersion: IVersion | undefined;
-}
-
-export interface IUsersState {
-	initialized: boolean;
-	currentUserId: null | string;
-	users: { [userId: string]: IUser };
-	currentUserCloudInfo: Cloud.UserAccount | null;
 }
 
 export interface IWorkflowsState {
@@ -1472,16 +1418,6 @@ export interface IInviteResponse {
 		inviteAcceptUrl: string;
 	};
 	error?: string;
-}
-
-export interface IOnboardingCallPromptResponse {
-	nextPrompt: IOnboardingCallPrompt;
-}
-
-export interface IOnboardingCallPrompt {
-	title: string;
-	description: string;
-	toast_sequence_number: number;
 }
 
 export interface ITab {
@@ -1869,9 +1805,7 @@ export type AddedNode = {
 	type: string;
 	openDetail?: boolean;
 	isAutoAdd?: boolean;
-	name?: string;
-	position?: XYPosition;
-};
+} & Partial<INodeUi>;
 
 export type AddedNodeConnection = {
 	from: { nodeIndex: number; outputIndex?: number };
@@ -1900,10 +1834,6 @@ export type NewConnectionInfo = {
 	nodeCreatorView?: NodeFilterType;
 	outputType?: NodeConnectionType;
 	endpointUuid?: string;
-};
-
-export type AIAssistantConnectionInfo = NewConnectionInfo & {
-	stepName?: string;
 };
 
 export type EnterpriseEditionFeatureKey =

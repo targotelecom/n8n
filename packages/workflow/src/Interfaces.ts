@@ -8,6 +8,7 @@ import type { SecureContextOptions } from 'tls';
 import type { Readable } from 'stream';
 import type { URLSearchParams } from 'url';
 import type { RequestBodyMatcher } from 'nock';
+import type { Client as SSHClient } from 'ssh2';
 
 import type { AuthenticationMethod } from './Authentication';
 import type { CODE_EXECUTION_MODES, CODE_LANGUAGES, LOG_LEVELS } from './Constants';
@@ -18,6 +19,7 @@ import type { Workflow } from './Workflow';
 import type { WorkflowActivationError } from './errors/workflow-activation.error';
 import type { WorkflowOperationError } from './errors/workflow-operation.error';
 import type { WorkflowHooks } from './WorkflowHooks';
+import type { ExecutionCancelledError } from './errors';
 import type { NodeOperationError } from './errors/node-operation.error';
 import type { NodeApiError } from './errors/node-api.error';
 import type { AxiosProxyConfig } from 'axios';
@@ -79,6 +81,7 @@ export type ExecutionError =
 	| ExpressionError
 	| WorkflowActivationError
 	| WorkflowOperationError
+	| ExecutionCancelledError
 	| NodeOperationError
 	| NodeApiError;
 
@@ -717,7 +720,7 @@ export type ICredentialTestFunction = (
 ) => Promise<INodeCredentialTestResult>;
 
 export interface ICredentialTestFunctions {
-	helpers: {
+	helpers: SSHTunnelFunctions & {
 		request: (uriOrObject: string | object, options?: object) => Promise<any>;
 	};
 }
@@ -749,6 +752,7 @@ export interface BinaryHelperFunctions {
 	setBinaryDataBuffer(data: IBinaryData, binaryData: Buffer): Promise<IBinaryData>;
 	copyBinaryFile(): Promise<never>;
 	binaryToBuffer(body: Buffer | Readable): Promise<Buffer>;
+	binaryToString(body: Buffer | Readable, encoding?: BufferEncoding): Promise<string>;
 	getBinaryPath(binaryDataId: string): string;
 	getBinaryStream(binaryDataId: string, chunkSize?: number): Promise<Readable>;
 	getBinaryMetadata(binaryDataId: string): Promise<{
@@ -814,6 +818,36 @@ export interface RequestHelperFunctions {
 		requestOptions: IRequestOptions,
 		oAuth2Options?: IOAuth2Options,
 	): Promise<any>;
+}
+
+export type SSHCredentials = {
+	sshHost: string;
+	sshPort: number;
+	sshUser: string;
+} & (
+	| {
+			sshAuthenticateWith: 'password';
+			sshPassword: string;
+	  }
+	| {
+			sshAuthenticateWith: 'privateKey';
+			// TODO: rename this to `sshPrivateKey`
+			privateKey: string;
+			// TODO: rename this to `sshPassphrase`
+			passphrase?: string;
+	  }
+);
+
+export interface SSHTunnelFunctions {
+	getSSHClient(credentials: SSHCredentials): Promise<SSHClient>;
+}
+
+type CronUnit = number | '*' | `*/${number}`;
+export type CronExpression =
+	`${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit} ${CronUnit}`;
+
+export interface SchedulingFunctions {
+	registerCron(cronExpression: CronExpression, onTick: () => void): void;
 }
 
 export type NodeTypeAndVersion = {
@@ -899,6 +933,7 @@ export type IExecuteFunctions = ExecuteFunctions.GetNodeParameterFn &
 			BaseHelperFunctions &
 			BinaryHelperFunctions &
 			FileSystemHelperFunctions &
+			SSHTunnelFunctions &
 			JsonHelperFunctions & {
 				normalizeItems(items: INodeExecutionData | INodeExecutionData[]): INodeExecutionData[];
 				constructExecutionMetaData(
@@ -948,7 +983,7 @@ export interface ILoadOptionsFunctions extends FunctionsBase {
 		options?: IGetNodeParameterOptions,
 	): NodeParameterValueType | object | undefined;
 	getCurrentNodeParameters(): INodeParameters | undefined;
-	helpers: RequestHelperFunctions;
+	helpers: RequestHelperFunctions & SSHTunnelFunctions;
 }
 
 export interface IPollFunctions
@@ -967,6 +1002,7 @@ export interface IPollFunctions
 	helpers: RequestHelperFunctions &
 		BaseHelperFunctions &
 		BinaryHelperFunctions &
+		SchedulingFunctions &
 		JsonHelperFunctions;
 }
 
@@ -986,6 +1022,8 @@ export interface ITriggerFunctions
 	helpers: RequestHelperFunctions &
 		BaseHelperFunctions &
 		BinaryHelperFunctions &
+		SSHTunnelFunctions &
+		SchedulingFunctions &
 		JsonHelperFunctions;
 }
 
@@ -1258,7 +1296,8 @@ export type DisplayCondition =
 	| { _cnd: { startsWith: string } }
 	| { _cnd: { endsWith: string } }
 	| { _cnd: { includes: string } }
-	| { _cnd: { regex: string } };
+	| { _cnd: { regex: string } }
+	| { _cnd: { exists: true } };
 
 export interface IDisplayOptions {
 	hide?: {
@@ -1408,14 +1447,10 @@ export type IParameterLabel = {
 	size?: 'small' | 'medium';
 };
 
-export interface IPollResponse {
-	closeFunction?: CloseFunction;
-}
-
 export interface ITriggerResponse {
 	closeFunction?: CloseFunction;
 	// To manually trigger the run
-	manualTriggerFunction?: CloseFunction;
+	manualTriggerFunction?: () => Promise<void>;
 	// Gets added automatically at manual workflow runs resolves with
 	// the first emitted data
 	manualTriggerResponse?: Promise<INodeExecutionData[][]>;
@@ -1779,9 +1814,17 @@ export interface INodeOutputConfiguration {
 
 export type ExpressionString = `={{${string}}}`;
 
+export type NodeDefaults = Partial<{
+	/**
+	 * @deprecated Use {@link INodeTypeBaseDescription.iconColor|iconColor} instead. `iconColor` supports dark mode and uses preset colors from n8n's design system.
+	 */
+	color: string;
+	name: string;
+}>;
+
 export interface INodeTypeDescription extends INodeTypeBaseDescription {
 	version: number | number[];
-	defaults: INodeParameters;
+	defaults: NodeDefaults;
 	eventTriggerDescription?: string;
 	activationMessage?: string;
 	inputs: Array<ConnectionTypes | INodeInputConfiguration> | ExpressionString;
@@ -2102,6 +2145,7 @@ export const eventNamesAiNodes = [
 	'n8n.ai.llm.generated',
 	'n8n.ai.llm.error',
 	'n8n.ai.vector.store.populated',
+	'n8n.ai.vector.store.updated',
 ] as const;
 
 export type EventNamesAiNodesType = (typeof eventNamesAiNodes)[number];
@@ -2323,6 +2367,7 @@ export interface INodeGraphItem {
 	prompts?: IDataObject[] | IDataObject; //ai node's prompts, cloud only
 	toolSettings?: IDataObject; //various langchain tool's settings
 	sql?: string; //merge node combineBySql, cloud only
+	workflow_id?: string; //@n8n/n8n-nodes-langchain.toolWorkflow and n8n-nodes-base.executeWorkflow
 }
 
 export interface INodeNameIndex {
@@ -2474,9 +2519,9 @@ export interface FilterOperatorValue {
 
 export type FilterConditionValue = {
 	id: string;
-	leftValue: NodeParameterValue;
+	leftValue: NodeParameterValue | NodeParameterValue[];
 	operator: FilterOperatorValue;
-	rightValue: NodeParameterValue;
+	rightValue: NodeParameterValue | NodeParameterValue[];
 };
 
 export type FilterOptionsValue = {
@@ -2560,6 +2605,8 @@ export type ExpressionEvaluatorType = 'tmpl' | 'tournament';
 export type N8nAIProviderType = 'openai' | 'unknown';
 
 export interface IN8nUISettings {
+	isDocker?: boolean;
+	databaseType: 'sqlite' | 'mariadb' | 'mysqldb' | 'postgresdb';
 	endpointForm: string;
 	endpointFormTest: string;
 	endpointFormWaiting: string;
@@ -2568,6 +2615,7 @@ export interface IN8nUISettings {
 	saveDataErrorExecution: WorkflowSettings.SaveDataExecution;
 	saveDataSuccessExecution: WorkflowSettings.SaveDataExecution;
 	saveManualExecutions: boolean;
+	saveExecutionProgress: boolean;
 	executionTimeout: number;
 	maxExecutionTimeout: number;
 	workflowCallerPolicyDefaultOption: WorkflowSettings.CallerPolicy;
@@ -2579,10 +2627,12 @@ export interface IN8nUISettings {
 	urlBaseWebhook: string;
 	urlBaseEditor: string;
 	versionCli: string;
+	nodeJsVersion: string;
+	concurrency: number;
 	authCookie: {
 		secure: boolean;
 	};
-	binaryDataMode: string;
+	binaryDataMode: 'default' | 'filesystem' | 's3';
 	releaseChannel: 'stable' | 'beta' | 'nightly' | 'dev';
 	n8nMetadata?: {
 		userId?: string;
@@ -2621,7 +2671,6 @@ export interface IN8nUISettings {
 		enabled: boolean;
 		host: string;
 	};
-	onboardingCallPromptEnabled: boolean;
 	missingPackages?: boolean;
 	executionMode: 'regular' | 'queue';
 	pushBackend: 'sse' | 'websocket';
@@ -2658,6 +2707,8 @@ export interface IN8nUISettings {
 	};
 	hideUsagePage: boolean;
 	license: {
+		planName?: string;
+		consumerId: string;
 		environment: 'development' | 'production' | 'staging';
 	};
 	variables: {
@@ -2674,14 +2725,18 @@ export interface IN8nUISettings {
 	};
 	ai: {
 		enabled: boolean;
-		provider: string;
-		features: {
-			generateCurl: boolean;
-		};
 	};
 	workflowHistory: {
 		pruneTime: number;
 		licensePruneTime: number;
+	};
+	pruning: {
+		isEnabled: boolean;
+		maxAge: number;
+		maxCount: number;
+	};
+	security: {
+		blockFileAccessToN8nFiles: boolean;
 	};
 }
 

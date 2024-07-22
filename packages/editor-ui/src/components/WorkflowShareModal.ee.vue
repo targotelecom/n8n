@@ -68,6 +68,7 @@
 							<i18n-t
 								:keypath="
 									uiStore.contextBasedTranslationKeys.workflows.sharing.unavailable.description
+										.tooltip
 								"
 								tag="span"
 							>
@@ -196,7 +197,7 @@ export default defineComponent({
 			useRolesStore,
 		),
 		isSharingEnabled(): boolean {
-			return this.settingsStore.isEnterpriseFeatureEnabled(EnterpriseEditionFeature.Sharing);
+			return this.settingsStore.isEnterpriseFeatureEnabled[EnterpriseEditionFeature.Sharing];
 		},
 		modalTitle(): string {
 			if (this.isHomeTeamProject) {

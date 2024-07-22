@@ -36,15 +36,15 @@ const props = withDefaults(defineProps<ExecutionFilterProps>(), {
 	teleported: true,
 });
 const emit = defineEmits<{
-	(event: 'filterChanged', value: ExecutionFilterType): void;
+	filterChanged: [value: ExecutionFilterType];
 }>();
 const debouncedEmit = debounce(emit, {
 	debounceTime: 500,
 });
 
 const isCustomDataFilterTracked = ref(false);
-const isAdvancedExecutionFilterEnabled = computed(() =>
-	settingsStore.isEnterpriseFeatureEnabled(EnterpriseEditionFeature.AdvancedExecutionFilters),
+const isAdvancedExecutionFilterEnabled = computed(
+	() => settingsStore.isEnterpriseFeatureEnabled[EnterpriseEditionFeature.AdvancedExecutionFilters],
 );
 const showTags = computed(() => false);
 

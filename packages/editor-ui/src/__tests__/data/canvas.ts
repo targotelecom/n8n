@@ -1,26 +1,46 @@
-import { CanvasNodeKey } from '@/constants';
+import { CanvasNodeHandleKey, CanvasNodeKey } from '@/constants';
 import { ref } from 'vue';
-import type { CanvasElement, CanvasElementData } from '@/types';
+import type {
+	CanvasNode,
+	CanvasNodeData,
+	CanvasNodeHandleInjectionData,
+	CanvasNodeInjectionData,
+} from '@/types';
+import { CanvasConnectionMode, CanvasNodeRenderType } from '@/types';
+import { NodeConnectionType } from 'n8n-workflow';
 
 export function createCanvasNodeData({
 	id = 'node',
+	name = 'Test Node',
 	type = 'test',
 	typeVersion = 1,
 	disabled = false,
 	inputs = [],
 	outputs = [],
-	connections = { input: {}, output: {} },
-	renderType = 'default',
-}: Partial<CanvasElementData> = {}): CanvasElementData {
+	connections = { [CanvasConnectionMode.Input]: {}, [CanvasConnectionMode.Output]: {} },
+	execution = { running: false },
+	issues = { items: [], visible: false },
+	pinnedData = { count: 0, visible: false },
+	runData = { count: 0, visible: false },
+	render = {
+		type: CanvasNodeRenderType.Default,
+		options: { configurable: false, configuration: false, trigger: false },
+	},
+}: Partial<CanvasNodeData> = {}): CanvasNodeData {
 	return {
 		id,
+		name,
 		type,
 		typeVersion,
+		execution,
+		issues,
+		pinnedData,
+		runData,
 		disabled,
 		inputs,
 		outputs,
 		connections,
-		renderType,
+		render,
 	};
 }
 
@@ -30,9 +50,7 @@ export function createCanvasNodeElement({
 	label = 'Node',
 	position = { x: 100, y: 100 },
 	data,
-}: Partial<
-	Omit<CanvasElement, 'data'> & { data: Partial<CanvasElementData> }
-> = {}): CanvasElement {
+}: Partial<Omit<CanvasNode, 'data'> & { data: Partial<CanvasNodeData> }> = {}): CanvasNode {
 	return {
 		id,
 		type,
@@ -47,7 +65,7 @@ export function createCanvasNodeProps({
 	label = 'Test Node',
 	selected = false,
 	data = {},
-} = {}) {
+}: { id?: string; label?: string; selected?: boolean; data?: Partial<CanvasNodeData> } = {}) {
 	return {
 		id,
 		label,
@@ -61,6 +79,11 @@ export function createCanvasNodeProvide({
 	label = 'Test Node',
 	selected = false,
 	data = {},
+}: {
+	id?: string;
+	label?: string;
+	selected?: boolean;
+	data?: Partial<CanvasNodeData>;
 } = {}) {
 	const props = createCanvasNodeProps({ id, label, selected, data });
 	return {
@@ -69,13 +92,34 @@ export function createCanvasNodeProvide({
 			label: ref(props.label),
 			selected: ref(props.selected),
 			data: ref(props.data),
-		},
+		} satisfies CanvasNodeInjectionData,
+	};
+}
+
+export function createCanvasHandleProvide({
+	label = 'Handle',
+	mode = CanvasConnectionMode.Input,
+	type = NodeConnectionType.Main,
+	connected = false,
+}: {
+	label?: string;
+	mode?: CanvasConnectionMode;
+	type?: NodeConnectionType;
+	connected?: boolean;
+} = {}) {
+	return {
+		[`${CanvasNodeHandleKey}`]: {
+			label: ref(label),
+			mode: ref(mode),
+			type: ref(type),
+			connected: ref(connected),
+		} satisfies CanvasNodeHandleInjectionData,
 	};
 }
 
 export function createCanvasConnection(
-	nodeA: CanvasElement,
-	nodeB: CanvasElement,
+	nodeA: CanvasNode,
+	nodeB: CanvasNode,
 	{ sourceIndex = 0, targetIndex = 0 } = {},
 ) {
 	const nodeAOutput = nodeA.data?.outputs[sourceIndex];
