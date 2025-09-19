@@ -1,3 +1,4 @@
+import merge from 'lodash/merge';
 import type {
 	IExecuteFunctions,
 	INodeExecutionData,
@@ -7,18 +8,16 @@ import type {
 
 import { updateDisplayOptions } from '@utils/utilities';
 
-import type { ClashResolveOptions } from '../../helpers/interfaces';
 import { clashHandlingProperties, fuzzyCompareProperty } from '../../helpers/descriptions';
+import type { ClashResolveOptions } from '../../helpers/interfaces';
 import { addSuffixToEntriesKeys, selectMergeMethod } from '../../helpers/utils';
-
-import merge from 'lodash/merge';
 
 export const properties: INodeProperties[] = [
 	{
 		displayName: 'Options',
 		name: 'options',
 		type: 'collection',
-		placeholder: 'Add Option',
+		placeholder: 'Add option',
 		default: {},
 		options: [clashHandlingProperties, fuzzyCompareProperty],
 	},
@@ -36,7 +35,7 @@ export const description = updateDisplayOptions(displayOptions, properties);
 export async function execute(
 	this: IExecuteFunctions,
 	inputsData: INodeExecutionData[][],
-): Promise<INodeExecutionData[]> {
+): Promise<INodeExecutionData[][]> {
 	const returnData: INodeExecutionData[] = [];
 
 	const clashHandling = this.getNodeParameter(
@@ -60,7 +59,7 @@ export async function execute(
 	const mergeIntoSingleObject = selectMergeMethod(clashHandling);
 
 	if (!input1 || !input2) {
-		return returnData;
+		return [returnData];
 	}
 
 	let entry1: INodeExecutionData;
@@ -80,5 +79,5 @@ export async function execute(
 		}
 	}
 
-	return returnData;
+	return [returnData];
 }

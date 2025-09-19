@@ -1,18 +1,22 @@
-import { Container, Service } from 'typedi';
+import type { RoleChangeRequestDto } from '@n8n/api-types';
+import { Logger } from '@n8n/backend-common';
+import type { PublicUser } from '@n8n/db';
+import { User, UserRepository } from '@n8n/db';
+import { Service } from '@n8n/di';
+import { getGlobalScopes, type AssignableGlobalRole } from '@n8n/permissions';
 import type { IUserSettings } from 'n8n-workflow';
-import { ApplicationError, ErrorReporterProxy as ErrorReporter } from 'n8n-workflow';
+import { UnexpectedError } from 'n8n-workflow';
 
-import type { User, AssignableRole } from '@db/entities/User';
-import { UserRepository } from '@db/repositories/user.repository';
-import type { Invitation, PublicUser } from '@/Interfaces';
-import type { PostHogClient } from '@/posthog';
-import { Logger } from '@/Logger';
-import { UserManagementMailer } from '@/UserManagement/email';
-import { InternalHooks } from '@/InternalHooks';
-import { UrlService } from '@/services/url.service';
-import type { UserRequest } from '@/requests';
 import { InternalServerError } from '@/errors/response-errors/internal-server.error';
-import { EventService } from '@/eventbus/event.service';
+import { EventService } from '@/events/event.service';
+import type { Invitation } from '@/interfaces';
+import type { PostHogClient } from '@/posthog';
+import type { UserRequest } from '@/requests';
+import { UrlService } from '@/services/url.service';
+import { UserManagementMailer } from '@/user-management/email';
+
+import { PublicApiKeyService } from './public-api-key.service';
+import { RoleService } from './role.service';
 
 @Service()
 export class UserService {
@@ -22,6 +26,8 @@ export class UserService {
 		private readonly mailer: UserManagementMailer,
 		private readonly urlService: UrlService,
 		private readonly eventService: EventService,
+		private readonly publicApiKeyService: PublicApiKeyService,
+		private readonly roleService: RoleService,
 	) {}
 
 	async update(userId: string, data: Partial<User>) {
@@ -57,19 +63,23 @@ export class UserService {
 			inviterId?: string;
 			posthog?: PostHogClient;
 			withScopes?: boolean;
+			mfaAuthenticated?: boolean;
 		},
 	) {
-		const { password, updatedAt, apiKey, authIdentities, ...rest } = user;
+		const { password, updatedAt, authIdentities, mfaRecoveryCodes, mfaSecret, role, ...rest } =
+			user;
 
-		const ldapIdentity = authIdentities?.find((i) => i.providerType === 'ldap');
+		const providerType = authIdentities?.[0]?.providerType;
 
 		let publicUser: PublicUser = {
 			...rest,
-			signInType: ldapIdentity ? 'ldap' : 'email',
+			role: role?.slug,
+			signInType: providerType ?? 'email',
+			isOwner: user.role.slug === 'global:owner',
 		};
 
 		if (options?.withInviteUrl && !options?.inviterId) {
-			throw new ApplicationError('Inviter ID is required to generate invite URL');
+			throw new UnexpectedError('Inviter ID is required to generate invite URL');
 		}
 
 		if (options?.withInviteUrl && options?.inviterId && publicUser.isPending) {
@@ -80,9 +90,12 @@ export class UserService {
 			publicUser = await this.addFeatureFlags(publicUser, options.posthog);
 		}
 
+		// TODO: resolve these directly in the frontend
 		if (options?.withScopes) {
-			publicUser.globalScopes = user.globalScopes;
+			publicUser.globalScopes = getGlobalScopes(user);
 		}
+
+		publicUser.mfaAuthenticated = options?.mfaAuthenticated ?? false;
 
 		return publicUser;
 	}
@@ -118,7 +131,7 @@ export class UserService {
 	private async sendEmails(
 		owner: User,
 		toInviteUsers: { [key: string]: string },
-		role: AssignableRole,
+		role: AssignableGlobalRole,
 	) {
 		const domain = this.urlService.getInstanceBaseUrl();
 
@@ -131,6 +144,7 @@ export class UserService {
 						email,
 						inviteAcceptUrl,
 						emailSent: false,
+						role,
 					},
 					error: '',
 				};
@@ -139,41 +153,35 @@ export class UserService {
 					const result = await this.mailer.invite({
 						email,
 						inviteAcceptUrl,
-						domain,
 					});
 					if (result.emailSent) {
 						invitedUser.user.emailSent = true;
 						delete invitedUser.user?.inviteAcceptUrl;
-						void Container.get(InternalHooks).onUserTransactionalEmail({
-							user_id: id,
-							message_type: 'New user invite',
-							public_api: false,
+
+						this.eventService.emit('user-transactional-email-sent', {
+							userId: id,
+							messageType: 'New user invite',
+							publicApi: false,
 						});
 					}
 
-					void Container.get(InternalHooks).onUserInvite({
-						user: owner,
-						target_user_id: Object.values(toInviteUsers),
-						public_api: false,
-						email_sent: result.emailSent,
-						invitee_role: role, // same role for all invited users
-					});
 					this.eventService.emit('user-invited', {
 						user: owner,
 						targetUserId: Object.values(toInviteUsers),
+						publicApi: false,
+						emailSent: result.emailSent,
+						inviteeRole: role, // same role for all invited users
 					});
 				} catch (e) {
 					if (e instanceof Error) {
-						void Container.get(InternalHooks).onEmailFailed({
+						this.eventService.emit('email-failed', {
 							user: owner,
-							message_type: 'New user invite',
-							public_api: false,
+							messageType: 'New user invite',
+							publicApi: false,
 						});
-						this.eventService.emit('email-failed', { user: owner, messageType: 'New user invite' });
 						this.logger.error('Failed to send email', {
 							userId: owner.id,
 							inviteAcceptUrl,
-							domain,
 							email,
 						});
 						invitedUser.error = e.message;
@@ -204,13 +212,24 @@ export class UserService {
 				: 'Creating 1 user shell...',
 		);
 
+		// Check that all roles in the invitations exist in the database
+		await this.roleService.checkRolesExist(
+			invitations.map(({ role }) => role),
+			'global',
+		);
+
 		try {
 			await this.getManager().transaction(
 				async (transactionManager) =>
 					await Promise.all(
 						toCreateUsers.map(async ({ email, role }) => {
 							const { user: savedUser } = await this.userRepository.createUserWithProject(
-								{ email, role },
+								{
+									email,
+									role: {
+										slug: role,
+									},
+								},
 								transactionManager,
 							);
 							createdUsers.set(email, savedUser.id);
@@ -219,9 +238,8 @@ export class UserService {
 					),
 			);
 		} catch (error) {
-			ErrorReporter.error(error);
 			this.logger.error('Failed to create user shells', { userShells: createdUsers });
-			throw new InternalServerError('An error occurred during user creation');
+			throw new InternalServerError('An error occurred during user creation', error);
 		}
 
 		pendingUsersToInvite.forEach(({ email, id }) => createdUsers.set(email, id));
@@ -233,5 +251,23 @@ export class UserService {
 		);
 
 		return { usersInvited, usersCreated: toCreateUsers.map(({ email }) => email) };
+	}
+
+	async changeUserRole(user: User, targetUser: User, newRole: RoleChangeRequestDto) {
+		// Check that new role exists
+		await this.roleService.checkRolesExist([newRole.newRoleName], 'global');
+
+		return await this.userRepository.manager.transaction(async (trx) => {
+			await trx.update(User, { id: targetUser.id }, { role: { slug: newRole.newRoleName } });
+
+			const adminDowngradedToMember =
+				user.role.slug === 'global:owner' &&
+				targetUser.role.slug === 'global:admin' &&
+				newRole.newRoleName === 'global:member';
+
+			if (adminDowngradedToMember) {
+				await this.publicApiKeyService.removeOwnerOnlyScopesFromApiKeys(targetUser, trx);
+			}
+		});
 	}
 }

@@ -1,8 +1,9 @@
 import type { INodeProperties, IExecuteFunctions, IDataObject } from 'n8n-workflow';
+
 import { updateDisplayOptions } from '../../../../../utils/utilities';
-import { splunkApiJsonRequest } from '../../transport';
-import { populate, setReturnAllOrLimit } from '../../helpers/utils';
 import { searchJobRLC } from '../../helpers/descriptions';
+import { populate, setReturnAllOrLimit } from '../../helpers/utils';
+import { splunkApiJsonRequest } from '../../transport';
 
 const properties: INodeProperties[] = [
 	searchJobRLC,
@@ -72,7 +73,7 @@ const properties: INodeProperties[] = [
 		displayName: 'Options',
 		name: 'options',
 		type: 'collection',
-		placeholder: 'Add Option',
+		placeholder: 'Add option',
 		default: {},
 		options: [
 			{

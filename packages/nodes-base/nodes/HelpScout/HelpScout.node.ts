@@ -8,40 +8,34 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import { isoCountryCodes } from '@utils/ISOCountryCodes';
 
 import { conversationFields, conversationOperations } from './ConversationDescription';
-
-import { customerFields, customerOperations } from './CustomerDescription';
-
-import type { ICustomer } from './CustomerInterface';
-
 import type { IConversation } from './ConversationInterface';
-
+import { customerFields, customerOperations } from './CustomerDescription';
+import type { ICustomer } from './CustomerInterface';
 import { helpscoutApiRequest, helpscoutApiRequestAllItems } from './GenericFunctions';
-
 import { mailboxFields, mailboxOperations } from './MailboxDescription';
-
 import { threadFields, threadOperations } from './ThreadDescription';
-
 import type { IAttachment, IThread } from './ThreadInterface';
 
 export class HelpScout implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'HelpScout',
+		displayName: 'Help Scout',
 		name: 'helpScout',
 		icon: 'file:helpScout.svg',
 		group: ['input'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
-		description: 'Consume HelpScout API',
+		description: 'Consume Help Scout API',
 		defaults: {
-			name: 'HelpScout',
+			name: 'Help Scout',
 		},
-		inputs: ['main'],
-		outputs: ['main'],
+		usableAsTool: true,
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'helpScoutOAuth2Api',
@@ -565,7 +559,7 @@ export class HelpScout implements INodeType {
 					}
 				}
 			} catch (error) {
-				if (this.continueOnFail(error)) {
+				if (this.continueOnFail()) {
 					const executionErrorData = this.helpers.constructExecutionMetaData(
 						this.helpers.returnJsonArray({ error: error.message }),
 						{ itemData: { item: i } },

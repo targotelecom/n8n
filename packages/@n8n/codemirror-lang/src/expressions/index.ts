@@ -1,6 +1,9 @@
 import { LRLanguage, LanguageSupport, foldNodeProp, foldInside } from '@codemirror/language';
 import { styleTags, tags as t } from '@lezer/highlight';
+
 import { parser } from './grammar';
+
+export const expressionParser = parser;
 
 export const parserWithMetaData = parser.configure({
 	props: [

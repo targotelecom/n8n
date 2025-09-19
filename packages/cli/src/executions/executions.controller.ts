@@ -1,15 +1,18 @@
-import { ExecutionRequest } from './execution.types';
+import type { User, ExecutionSummaries } from '@n8n/db';
+import { Get, Patch, Post, RestController } from '@n8n/decorators';
+import { PROJECT_OWNER_ROLE_SLUG, type Scope } from '@n8n/permissions';
+
 import { ExecutionService } from './execution.service';
-import { Get, Post, RestController } from '@/decorators';
 import { EnterpriseExecutionsService } from './execution.service.ee';
-import { License } from '@/License';
-import { WorkflowSharingService } from '@/workflows/workflowSharing.service';
-import { NotFoundError } from '@/errors/response-errors/not-found.error';
+import { ExecutionRequest } from './execution.types';
 import { parseRangeQuery } from './parse-range-query.middleware';
-import type { User } from '@/databases/entities/User';
-import type { Scope } from '@n8n/permissions';
-import { isPositiveInteger } from '@/utils';
+import { validateExecutionUpdatePayload } from './validation';
+
 import { BadRequestError } from '@/errors/response-errors/bad-request.error';
+import { NotFoundError } from '@/errors/response-errors/not-found.error';
+import { License } from '@/license';
+import { isPositiveInteger } from '@/utils';
+import { WorkflowSharingService } from '@/workflows/workflow-sharing.service';
 
 @RestController('/executions')
 export class ExecutionsController {
@@ -26,7 +29,7 @@ export class ExecutionsController {
 		} else {
 			return await this.workflowSharingService.getSharedWorkflowIds(user, {
 				workflowRoles: ['workflow:owner'],
-				projectRoles: ['project:personalOwner'],
+				projectRoles: [PROJECT_OWNER_ROLE_SLUG],
 			});
 		}
 	}
@@ -47,16 +50,41 @@ export class ExecutionsController {
 
 		query.accessibleWorkflowIds = accessibleWorkflowIds;
 
-		if (!this.license.isAdvancedExecutionFiltersEnabled()) delete query.metadata;
+		if (!this.license.isAdvancedExecutionFiltersEnabled()) {
+			delete query.metadata;
+			delete query.annotationTags;
+		}
 
 		const noStatus = !query.status || query.status.length === 0;
 		const noRange = !query.range.lastId || !query.range.firstId;
 
 		if (noStatus && noRange) {
-			return await this.executionService.findLatestCurrentAndCompleted(query);
+			const [executions, concurrentExecutionsCount] = await Promise.all([
+				this.executionService.findLatestCurrentAndCompleted(query),
+				this.executionService.getConcurrentExecutionsCount(),
+			]);
+			await this.executionService.addScopes(
+				req.user,
+				executions.results as ExecutionSummaries.ExecutionSummaryWithScopes[],
+			);
+			return {
+				...executions,
+				concurrentExecutionsCount,
+			};
 		}
 
-		return await this.executionService.findRangeWithCount(query);
+		const [executions, concurrentExecutionsCount] = await Promise.all([
+			this.executionService.findRangeWithCount(query),
+			this.executionService.getConcurrentExecutionsCount(),
+		]);
+		await this.executionService.addScopes(
+			req.user,
+			executions.results as ExecutionSummaries.ExecutionSummaryWithScopes[],
+		);
+		return {
+			...executions,
+			concurrentExecutionsCount,
+		};
 	}
 
 	@Get('/:id')
@@ -80,7 +108,9 @@ export class ExecutionsController {
 
 		if (workflowIds.length === 0) throw new NotFoundError('Execution not found');
 
-		return await this.executionService.stop(req.params.id);
+		const executionId = req.params.id;
+
+		return await this.executionService.stop(executionId, workflowIds);
 	}
 
 	@Post('/:id/retry')
@@ -99,5 +129,24 @@ export class ExecutionsController {
 		if (workflowIds.length === 0) throw new NotFoundError('Execution not found');
 
 		return await this.executionService.delete(req, workflowIds);
+	}
+
+	@Patch('/:id')
+	async update(req: ExecutionRequest.Update) {
+		if (!isPositiveInteger(req.params.id)) {
+			throw new BadRequestError('Execution ID is not a number');
+		}
+
+		const workflowIds = await this.getAccessibleWorkflowIds(req.user, 'workflow:read');
+
+		// Fail fast if no workflows are accessible
+		if (workflowIds.length === 0) throw new NotFoundError('Execution not found');
+
+		const { body: payload } = req;
+		const validatedPayload = validateExecutionUpdatePayload(payload);
+
+		await this.executionService.annotate(req.params.id, validatedPayload, workflowIds);
+
+		return await this.executionService.findOne(req, workflowIds);
 	}
 }

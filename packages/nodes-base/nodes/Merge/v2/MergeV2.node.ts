@@ -1,22 +1,24 @@
 import merge from 'lodash/merge';
-
-import type {
-	IExecuteFunctions,
-	IDataObject,
-	INodeExecutionData,
-	INodeType,
-	INodeTypeBaseDescription,
-	INodeTypeDescription,
-	IPairedItemData,
+import {
+	type IExecuteFunctions,
+	type IDataObject,
+	type INodeExecutionData,
+	type INodeType,
+	type INodeTypeBaseDescription,
+	type INodeTypeDescription,
+	type IPairedItemData,
+	NodeConnectionTypes,
 } from 'n8n-workflow';
 
+import { preparePairedItemDataArray } from '@utils/utilities';
+
+import { optionsDescription } from './descriptions';
 import type {
 	ClashResolveOptions,
 	MatchFieldsJoinMode,
 	MatchFieldsOptions,
 	MatchFieldsOutput,
 } from './interfaces';
-
 import {
 	addSourceField,
 	addSuffixToEntriesKeys,
@@ -26,9 +28,6 @@ import {
 	mergeMatched,
 	selectMergeMethod,
 } from './utils';
-
-import { optionsDescription } from './descriptions';
-import { preparePairedItemDataArray } from '@utils/utilities';
 
 export class MergeV2 implements INodeType {
 	description: INodeTypeDescription;
@@ -41,8 +40,8 @@ export class MergeV2 implements INodeType {
 				name: 'Merge',
 			},
 
-			inputs: ['main', 'main'],
-			outputs: ['main'],
+			inputs: [NodeConnectionTypes.Main, NodeConnectionTypes.Main],
+			outputs: [NodeConnectionTypes.Main],
 			inputNames: ['Input 1', 'Input 2'],
 			// If mode is chooseBranch data from both branches is required
 			// to continue, else data from any input suffices
@@ -292,7 +291,7 @@ export class MergeV2 implements INodeType {
 	}
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-		const returnData: INodeExecutionData[] = [];
+		let returnData: INodeExecutionData[] = [];
 
 		const mode = this.getNodeParameter('mode', 0) as string;
 
@@ -537,7 +536,7 @@ export class MergeV2 implements INodeType {
 						output = [...output, ...unmatched1, ...unmatched2];
 					}
 
-					returnData.push(...output);
+					returnData = returnData.concat(output);
 				}
 
 				if (joinMode === 'keepNonMatches') {
@@ -566,15 +565,21 @@ export class MergeV2 implements INodeType {
 
 					if (joinMode === 'enrichInput1') {
 						if (clashResolveOptions.resolveClash === 'addSuffix') {
-							returnData.push(...mergedEntries, ...addSuffixToEntriesKeys(matches.unmatched1, '1'));
+							returnData = returnData.concat(
+								mergedEntries,
+								addSuffixToEntriesKeys(matches.unmatched1, '1'),
+							);
 						} else {
-							returnData.push(...mergedEntries, ...matches.unmatched1);
+							returnData = returnData.concat(mergedEntries, matches.unmatched1);
 						}
 					} else {
 						if (clashResolveOptions.resolveClash === 'addSuffix') {
-							returnData.push(...mergedEntries, ...addSuffixToEntriesKeys(matches.unmatched2, '2'));
+							returnData = returnData.concat(
+								mergedEntries,
+								addSuffixToEntriesKeys(matches.unmatched2, '2'),
+							);
 						} else {
-							returnData.push(...mergedEntries, ...matches.unmatched2);
+							returnData = returnData.concat(mergedEntries, matches.unmatched2);
 						}
 					}
 				}

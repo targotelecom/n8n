@@ -1,14 +1,15 @@
 {
   "name": "@n8n/config",
-  "version": "1.1.0",
+  "version": "1.55.0",
   "scripts": {
     "clean": "rimraf dist .turbo",
     "dev": "pnpm watch",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "format": "prettier --write . --ignore-path ../../../.prettierignore",
-    "lint": "eslint .",
-    "lintfix": "eslint . --fix",
+    "format": "biome format --write src test",
+    "format:check": "biome ci src test",
+    "lint": "eslint . --quiet",
+    "lint:fix": "eslint . --fix",
     "watch": "tsc -p tsconfig.build.json --watch",
     "test": "jest",
     "test:dev": "jest --watch"
@@ -20,7 +21,11 @@
     "dist/**/*"
   ],
   "dependencies": {
-    "reflect-metadata": "0.2.2",
-    "typedi": "0.10.0"
+    "@n8n/di": "workspace:*",
+    "reflect-metadata": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@n8n/typescript-config": "workspace:*"
   }
 }

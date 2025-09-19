@@ -1,2 +1,2 @@
-export { EventMessageTypes } from './EventMessageClasses';
-export { EventPayloadWorkflow } from './EventMessageClasses/EventMessageWorkflow';
+export type { EventMessageTypes } from './event-message-classes';
+export type { EventPayloadWorkflow } from './event-message-classes/event-message-workflow';
