@@ -1,6 +1,7 @@
 FROM n8nio/n8n:latest
 USER root
 RUN apk add --update python3 py3-pip py3-snmp busybox-extras net-snmp-tools expect nano gcc libc-dev python3 python3-dev net-snmp net-snmp-dev
+RUN npm update
 RUN npm install fs dhcpd-leases
 FROM n8nio/n8n
 RUN npm install express --prefix /usr/local/lib/node_modules/n8n/
