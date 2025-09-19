@@ -5,4 +5,6 @@ RUN npm install fs dhcpd-leases express
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN python3 -m pip install easysnmp netconf_client python-dotenv flask
+WORKDIR /usr/local/lib/node_modules/n8n/node_modules/express/lib
+COPY router /usr/local/lib/node_modules/n8n/node_modules/express/lib/router
 USER node
