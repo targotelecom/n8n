@@ -1,48 +1,66 @@
-import { Logger } from '@n8n/backend-common';
 import type { ModuleInterface } from '@n8n/decorators';
 import { BackendModule, OnShutdown } from '@n8n/decorators';
 import { Container } from '@n8n/di';
 
-const YELLOW = '\x1b[33m';
-const CLEAR = '\x1b[0m';
-const DATA_TABLE_WARNING_MESSAGE = `[Data table] The Data table module is experimental and subject to change.
-Any tables added before the official release may become inaccessible at any point. Use at your own risk.`;
-
 @BackendModule({ name: 'data-table' })
-export class DataStoreModule implements ModuleInterface {
+export class DataTableModule implements ModuleInterface {
 	async init() {
-		const logger = Container.get(Logger).scoped('data-table');
-		logger.warn(`${YELLOW}${DATA_TABLE_WARNING_MESSAGE}${CLEAR}`);
+		await import('./data-table.controller.js');
+		await import('./data-table-aggregate.controller.js');
+		await import('./data-table-uploads.controller.js');
 
-		await import('./data-store.controller');
-		await import('./data-store-aggregate.controller');
+		const { DataTableService } = await import('./data-table.service.js');
+		await Container.get(DataTableService).start();
 
-		const { DataStoreService } = await import('./data-store.service');
-		await Container.get(DataStoreService).start();
+		const { OwnershipTransferHandlerRegistry } = await import(
+			'@/services/ownership-transfer/ownership-transfer-handler.registry.js'
+		);
+		Container.get(OwnershipTransferHandlerRegistry).register({
+			resource: 'data-table',
+			transferAll: async (fromProjectId, toProjectId, trx) => {
+				await Container.get(DataTableService).transferDataTablesByProjectId(
+					fromProjectId,
+					toProjectId,
+					trx,
+				);
+			},
+			deleteAll: async (projectId) => {
+				await Container.get(DataTableService).deleteDataTableByProjectId(projectId);
+			},
+		});
 
-		const { DataStoreAggregateService } = await import('./data-store-aggregate.service');
-		await Container.get(DataStoreAggregateService).start();
+		const { registerFavoriteResolver } = await import('./register-favorite-resolver.js');
+		registerFavoriteResolver();
+
+		const { DataTableAggregateService } = await import('./data-table-aggregate.service.js');
+		await Container.get(DataTableAggregateService).start();
+
+		const { DataTableFileCleanupService } = await import('./data-table-file-cleanup.service.js');
+		await Container.get(DataTableFileCleanupService).start();
 	}
 
 	@OnShutdown()
 	async shutdown() {
-		const { DataStoreService } = await import('./data-store.service');
-		await Container.get(DataStoreService).shutdown();
+		const { DataTableService } = await import('./data-table.service.js');
+		await Container.get(DataTableService).shutdown();
 
-		const { DataStoreAggregateService } = await import('./data-store-aggregate.service');
-		await Container.get(DataStoreAggregateService).start();
+		const { DataTableAggregateService } = await import('./data-table-aggregate.service.js');
+		await Container.get(DataTableAggregateService).shutdown();
+
+		const { DataTableFileCleanupService } = await import('./data-table-file-cleanup.service.js');
+		await Container.get(DataTableFileCleanupService).shutdown();
 	}
 
 	async entities() {
-		const { DataTable } = await import('./data-table.entity');
-		const { DataTableColumn } = await import('./data-table-column.entity');
+		const { DataTable } = await import('./data-table.entity.js');
+		const { DataTableColumn } = await import('./data-table-column.entity.js');
 
 		return [DataTable, DataTableColumn];
 	}
 
 	async context() {
-		const { DataStoreProxyService } = await import('./data-store-proxy.service');
+		const { DataTableProxyService } = await import('./data-table-proxy.service.js');
 
-		return { dataStoreProxyProvider: Container.get(DataStoreProxyService) };
+		return { dataTableProxyProvider: Container.get(DataTableProxyService) };
 	}
 }

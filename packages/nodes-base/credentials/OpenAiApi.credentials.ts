@@ -9,9 +9,9 @@ import type {
 export class OpenAiApi implements ICredentialType {
 	name = 'openAiApi';
 
-	displayName = 'OpenAi';
+	displayName = 'OpenAI';
 
-	documentationUrl = 'openAi';
+	documentationUrl = 'openai';
 
 	properties: INodeProperties[] = [
 		{
@@ -48,6 +48,9 @@ export class OpenAiApi implements ICredentialType {
 			displayName: 'Header Name',
 			name: 'headerName',
 			type: 'string',
+			typeOptions: {
+				ignoreCredentialExpressionResolveError: true,
+			},
 			displayOptions: {
 				show: {
 					header: [true],
@@ -60,6 +63,7 @@ export class OpenAiApi implements ICredentialType {
 			name: 'headerValue',
 			type: 'string',
 			typeOptions: {
+				ignoreCredentialExpressionResolveError: true,
 				password: true,
 			},
 			displayOptions: {
@@ -82,10 +86,11 @@ export class OpenAiApi implements ICredentialType {
 		credentials: ICredentialDataDecryptedObject,
 		requestOptions: IHttpRequestOptions,
 	): Promise<IHttpRequestOptions> {
-		requestOptions.headers = {
-			Authorization: 'Bearer ' + credentials.apiKey,
-			'OpenAI-Organization': credentials.organizationId,
-		};
+		requestOptions.headers ??= {};
+
+		requestOptions.headers['Authorization'] = `Bearer ${credentials.apiKey}`;
+		requestOptions.headers['OpenAI-Organization'] = credentials.organizationId;
+
 		if (
 			credentials.header &&
 			typeof credentials.headerName === 'string' &&
@@ -94,6 +99,7 @@ export class OpenAiApi implements ICredentialType {
 		) {
 			requestOptions.headers[credentials.headerName] = credentials.headerValue;
 		}
+
 		return requestOptions;
 	}
 }

@@ -3,19 +3,52 @@ import type {
 	ICredentialTestFunctions,
 	IDataObject,
 	IExecuteFunctions,
-	IHookFunctions,
 	ILoadOptionsFunctions,
-	IWebhookFunctions,
 	INodeProperties,
 	IPairedItemData,
 	JsonObject,
 	IHttpRequestMethods,
 	IRequestOptions,
 } from 'n8n-workflow';
-import { NodeApiError } from 'n8n-workflow';
+import { NodeApiError, UserError } from 'n8n-workflow';
+
+export function getSchemaHeader(
+	context: IExecuteFunctions | ILoadOptionsFunctions,
+	method: IHttpRequestMethods,
+	contextType: 'execute' | 'loadOptions',
+) {
+	let useCustomSchema = false;
+
+	if (contextType === 'loadOptions') {
+		useCustomSchema = context.getNodeParameter('useCustomSchema', false) as boolean;
+	} else {
+		useCustomSchema = context.getNodeParameter('useCustomSchema', 0, false) as boolean;
+	}
+
+	if (useCustomSchema) {
+		let schema: string;
+		const headers: IDataObject = {};
+
+		if (contextType === 'loadOptions') {
+			schema = context.getNodeParameter('schema', 'public') as string;
+		} else {
+			schema = context.getNodeParameter('schema', 0, 'public') as string;
+		}
+
+		if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+			headers['Content-Profile'] = schema;
+		} else if (['GET', 'HEAD'].includes(method)) {
+			headers['Accept-Profile'] = schema;
+		}
+
+		return headers;
+	}
+
+	return {};
+}
 
 export async function supabaseApiRequest(
-	this: IExecuteFunctions | ILoadOptionsFunctions | IHookFunctions | IWebhookFunctions,
+	this: IExecuteFunctions | ILoadOptionsFunctions,
 	method: IHttpRequestMethods,
 	resource: string,
 	body: IDataObject | IDataObject[] = {},
@@ -27,15 +60,6 @@ export async function supabaseApiRequest(
 		host: string;
 		serviceRole: string;
 	}>('supabaseApi');
-
-	if (this.getNodeParameter('useCustomSchema', false)) {
-		const schema = this.getNodeParameter('schema', 'public');
-		if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
-			headers['Content-Profile'] = schema;
-		} else if (['GET', 'HEAD'].includes(method)) {
-			headers['Accept-Profile'] = schema;
-		}
-	}
 
 	const options: IRequestOptions = {
 		headers: {
@@ -282,25 +306,62 @@ export function getFilters(
 	];
 }
 
-export const buildQuery = (obj: IDataObject, value: IDataObject) => {
-	if (value.condition === 'fullText') {
-		return Object.assign(obj, {
-			[`${value.keyName}`]: `${value.searchFunction}.${value.keyValue}`,
-		});
-	}
-	return Object.assign(obj, { [`${value.keyName}`]: `${value.condition}.${value.keyValue}` });
-};
+const supportedFilterConditions = new Set([
+	'eq',
+	'gt',
+	'gte',
+	'ilike',
+	'is',
+	'lt',
+	'lte',
+	'like',
+	'neq',
+]);
 
-export const buildOrQuery = (key: IDataObject) => {
-	if (key.condition === 'fullText') {
-		return `${key.keyName}.${key.searchFunction}.${key.keyValue}`;
-	}
-	return `${key.keyName}.${key.condition}.${key.keyValue}`;
-};
+const supportedSearchFunctions = new Set(['fts', 'plfts', 'phfts', 'wfts']);
 
-export const buildGetQuery = (obj: IDataObject, value: IDataObject) => {
-	return Object.assign(obj, { [`${value.keyName}`]: `eq.${value.keyValue}` });
-};
+// ,.():"\ - reserved characters by PostgREST
+// &?= - characters used in query strings
+const postgrestReservedCharacters = /[,.():"&?=\\]/;
+
+function quotePostgrestComponent(value: unknown) {
+	const stringValue = String(value);
+	if (!postgrestReservedCharacters.test(stringValue)) {
+		return stringValue;
+	}
+
+	return `"${stringValue.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+function getPostgrestOperator(value: IDataObject) {
+	const condition = String(value.condition);
+	if (condition !== 'fullText') {
+		if (!supportedFilterConditions.has(condition)) {
+			throw new UserError(`Unsupported filter condition: "${condition}"`);
+		}
+
+		return condition;
+	}
+
+	const searchFunction = String(value.searchFunction);
+	if (!supportedSearchFunctions.has(searchFunction)) {
+		throw new UserError(`Unsupported search function: "${searchFunction}"`);
+	}
+
+	return searchFunction;
+}
+
+export const buildQuery = (query: Map<string, string>, value: IDataObject) =>
+	query.set(
+		quotePostgrestComponent(value.keyName),
+		`${getPostgrestOperator(value)}.${String(value.keyValue)}`,
+	);
+
+export const buildOrQuery = (value: IDataObject) =>
+	`${quotePostgrestComponent(value.keyName)}.${getPostgrestOperator(value)}.${quotePostgrestComponent(value.keyValue)}`;
+
+export const buildGetQuery = (query: Map<string, string>, value: IDataObject) =>
+	query.set(quotePostgrestComponent(value.keyName), `eq.${String(value.keyValue)}`);
 
 export async function validateCredentials(
 	this: ICredentialTestFunctions,

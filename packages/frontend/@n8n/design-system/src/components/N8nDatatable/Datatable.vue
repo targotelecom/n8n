@@ -8,19 +8,12 @@ import N8nOption from '../N8nOption';
 import N8nPagination from '../N8nPagination';
 import N8nSelect from '../N8nSelect';
 import N8nTableBase from '../TableBase';
+import type { DatatableProps } from './Datatable.types';
 
 const ALL_ROWS = -1;
 
-interface DatatableProps {
-	columns: DatatableColumn[];
-	rows: Item[];
-	currentPage?: number;
-	pagination?: boolean;
-	rowsPerPage?: number;
-}
-
 defineOptions({ name: 'N8nDatatable' });
-const props = withDefaults(defineProps<DatatableProps>(), {
+const props = withDefaults(defineProps<DatatableProps<Item>>(), {
 	currentPage: 1,
 	pagination: true,
 	rowsPerPage: 10,
@@ -109,6 +102,8 @@ function getThStyle(column: DatatableColumn) {
 			</tbody>
 		</N8nTableBase>
 
+		<slot name="postdata" />
+
 		<div class="pagination">
 			<N8nPagination
 				v-if="totalPages > 1"
@@ -155,7 +150,7 @@ function getThStyle(column: DatatableColumn) {
 	align-items: center;
 	bottom: 0;
 	overflow: visible;
-	margin-top: var(--spacing-s);
+	margin-top: var(--spacing--sm);
 }
 
 .pageSizeSelector {

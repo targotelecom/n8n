@@ -1,23 +1,8 @@
 <script lang="ts" setup generic="Value extends string | boolean">
 import RadioButton from './RadioButton.vue';
+import type { RadioButtonsProps, RadioOption } from './RadioButtons.types';
 
-interface RadioOption {
-	label: string;
-	value: Value;
-	disabled?: boolean;
-	data?: Record<string, string | number | boolean | undefined>;
-}
-
-interface RadioButtonsProps {
-	modelValue?: Value;
-	options?: RadioOption[];
-	/** @default medium */
-	size?: 'small' | 'small-medium' | 'medium';
-	disabled?: boolean;
-	squareButtons?: boolean;
-}
-
-const props = withDefaults(defineProps<RadioButtonsProps>(), {
+const props = withDefaults(defineProps<RadioButtonsProps<Value>>(), {
 	active: false,
 	disabled: false,
 	size: 'medium',
@@ -28,7 +13,7 @@ const emit = defineEmits<{
 	'update:modelValue': [value: Value, e: MouseEvent];
 }>();
 
-const slots = defineSlots<{ option?: ((props: RadioOption) => {}) | undefined }>();
+const slots = defineSlots<{ option?: ((props: RadioOption<Value>) => {}) | undefined }>();
 
 const onClick = (
 	option: { label: string; value: Value; disabled?: boolean },
@@ -68,9 +53,9 @@ const onClick = (
 	line-height: 1;
 	vertical-align: middle;
 	font-size: 0;
-	background-color: var(--color-foreground-base);
-	padding: var(--spacing-5xs);
-	border-radius: var(--border-radius-base);
+	background-color: var(--color--foreground);
+	padding: var(--spacing--5xs);
+	border-radius: var(--radius);
 }
 
 .disabled {

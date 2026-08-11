@@ -1,11 +1,13 @@
-import { Logger } from '@n8n/backend-common';
+import { inTest, Logger } from '@n8n/backend-common';
 import { TaskRunnersConfig } from '@n8n/config';
 import { OnShutdown } from '@n8n/decorators';
 import { Container, Service } from '@n8n/di';
+import type { ServiceIdentifier } from '@n8n/di';
+import { sleep } from '@n8n/utils/sleep';
 import { ErrorReporter } from 'n8n-core';
-import { sleep } from 'n8n-workflow';
 import * as a from 'node:assert/strict';
 
+import { EventService } from '@/events/event.service';
 import type { TaskRunnerRestartLoopError } from '@/task-runners/errors/task-runner-restart-loop-error';
 import { TaskBrokerWsServer } from '@/task-runners/task-broker/task-broker-ws-server';
 import type { JsTaskRunnerProcess } from '@/task-runners/task-runner-process-js';
@@ -13,8 +15,10 @@ import type { PyTaskRunnerProcess } from '@/task-runners/task-runner-process-py'
 import { TaskRunnerProcessRestartLoopDetector } from '@/task-runners/task-runner-process-restart-loop-detector';
 
 import { MissingAuthTokenError } from './errors/missing-auth-token.error';
+import { MissingRequirementsError } from './errors/missing-requirements.error';
 import type { TaskBrokerServer } from './task-broker/task-broker-server';
 import type { LocalTaskRequester } from './task-managers/local-task-requester';
+import { TaskRequester } from './task-managers/task-requester';
 
 /**
  * Module responsible for loading and starting task runner. Task runner can be
@@ -41,19 +45,22 @@ export class TaskRunnerModule {
 		private readonly logger: Logger,
 		private readonly errorReporter: ErrorReporter,
 		private readonly runnerConfig: TaskRunnersConfig,
+		private readonly eventService: EventService,
 	) {
 		this.logger = this.logger.scoped('task-runner');
 	}
 
 	async start() {
-		a.ok(this.runnerConfig.enabled, 'Task runner is disabled');
-
 		const { mode, authToken } = this.runnerConfig;
 
 		if (mode === 'external' && !authToken) throw new MissingAuthTokenError();
 
 		await this.loadTaskRequester();
 		await this.loadTaskBroker();
+
+		this.eventService.on('execution-cancelled', ({ executionId }) => {
+			this.taskRequester?.cancelTasks(executionId);
+		});
 
 		if (mode === 'internal') await this.startInternalTaskRunners();
 	}
@@ -85,9 +92,9 @@ export class TaskRunnerModule {
 	}
 
 	private async loadTaskRequester() {
-		const { TaskRequester } = await import('@/task-runners/task-managers/task-requester');
+		const { TaskRequester } = await import('@/task-runners/task-managers/task-requester.js');
 		const { LocalTaskRequester } = await import(
-			'@/task-runners/task-managers/local-task-requester'
+			'@/task-runners/task-managers/local-task-requester.js'
 		);
 		this.taskRequester = Container.get(LocalTaskRequester);
 		Container.set(TaskRequester, this.taskRequester);
@@ -96,7 +103,7 @@ export class TaskRunnerModule {
 	private async loadTaskBroker() {
 		// These are imported dynamically because we need to set the task manager
 		// instance before importing them
-		const { TaskBrokerServer } = await import('@/task-runners/task-broker/task-broker-server');
+		const { TaskBrokerServer } = await import('@/task-runners/task-broker/task-broker-server.js');
 		this.taskBrokerHttpServer = Container.get(TaskBrokerServer);
 		this.taskBrokerWsServer = Container.get(TaskBrokerWsServer);
 
@@ -106,7 +113,14 @@ export class TaskRunnerModule {
 	private async startInternalTaskRunners() {
 		a.ok(this.taskBrokerWsServer, 'Task Runner WS Server not loaded');
 
-		const { JsTaskRunnerProcess } = await import('@/task-runners/task-runner-process-js');
+		const { InternalTaskRunnerDisconnectAnalyzer } = await import(
+			'@/task-runners/internal-task-runner-disconnect-analyzer.js'
+		);
+		this.taskBrokerWsServer.setDisconnectAnalyzer(
+			Container.get(InternalTaskRunnerDisconnectAnalyzer),
+		);
+
+		const { JsTaskRunnerProcess } = await import('@/task-runners/task-runner-process-js.js');
 		this.jsRunnerProcess = Container.get(JsTaskRunnerProcess);
 		this.jsRunnerProcessRestartLoopDetector = new TaskRunnerProcessRestartLoopDetector(
 			this.jsRunnerProcess,
@@ -118,30 +132,37 @@ export class TaskRunnerModule {
 
 		await this.jsRunnerProcess.start();
 
-		if (this.runnerConfig.isNativePythonRunnerEnabled) {
-			const { PyTaskRunnerProcess } = await import('@/task-runners/task-runner-process-py');
-			this.pyRunnerProcess = Container.get(PyTaskRunnerProcess);
-			this.pyRunnerProcessRestartLoopDetector = new TaskRunnerProcessRestartLoopDetector(
-				this.pyRunnerProcess,
+		const { PyTaskRunnerProcess } = await import('@/task-runners/task-runner-process-py.js');
+
+		const failureReason = await PyTaskRunnerProcess.checkRequirements();
+		if (failureReason) {
+			Container.get(TaskRequester as ServiceIdentifier<TaskRequester>).setRunnerUnavailable(
+				'python',
+				failureReason,
 			);
-			this.pyRunnerProcessRestartLoopDetector.on(
-				'restart-loop-detected',
-				this.onRunnerRestartLoopDetected,
-			);
-			await this.pyRunnerProcess.start();
+			const error = new MissingRequirementsError(failureReason);
+			this.logger.warn(error.message);
+			return; // allow bootup, will fail at execution time
 		}
 
-		const { InternalTaskRunnerDisconnectAnalyzer } = await import(
-			'@/task-runners/internal-task-runner-disconnect-analyzer'
+		this.pyRunnerProcess = Container.get(PyTaskRunnerProcess);
+		this.pyRunnerProcessRestartLoopDetector = new TaskRunnerProcessRestartLoopDetector(
+			this.pyRunnerProcess,
 		);
-		this.taskBrokerWsServer.setDisconnectAnalyzer(
-			Container.get(InternalTaskRunnerDisconnectAnalyzer),
+		this.pyRunnerProcessRestartLoopDetector.on(
+			'restart-loop-detected',
+			this.onRunnerRestartLoopDetected,
 		);
+		await this.pyRunnerProcess.start();
 	}
 
 	private onRunnerRestartLoopDetected = async (error: TaskRunnerRestartLoopError) => {
 		this.logger.error(error.message);
 		this.errorReporter.error(error);
+
+		// A restart loop is unrecoverable, so exit and let the process manager
+		// restart n8n. Skip in tests, where exiting would kill the vi worker.
+		if (inTest) return;
 
 		// Allow some time for the error to be flushed
 		await sleep(1000);
